@@ -1,0 +1,11 @@
+invoice_number,attributes
+INV-10001,"{""vendorCode"":""V001"",""amount"":1250.50,""currency"":""USD"",""tax"":112.50,""paymentTerms"":""NET_30"",""discount"":{""type"":""EARLY_PAYMENT"",""value"":2.5}}"
+INV-10002,"{""vendorCode"":""V002"",""amount"":540.00,""currency"":""EUR"",""tax"":45.00,""paymentTerms"":""NET_15"",""discount"":{""type"":""NONE"",""value"":0}}"
+INV-10003,"{""vendorCode"":""V003"",""amount"":2300.00,""currency"":""USD"",""tax"":207.00,""paymentTerms"":""NET_45"",""discount"":{""type"":""SEASONAL"",""value"":5}}"
+INV-10004,"{""vendorCode"":""V001"",""amount"":800.00,""currency"":""USD"",""tax"":72.00,""paymentTerms"":""NET_30"",""discount"":{""type"":""NONE"",""value"":0}}"
+INV-10005,"{""vendorCode"":""V004"",""amount"":1500.00,""currency"":""GBP"",""tax"":120.00,""paymentTerms"":""NET_60"",""discount"":{""type"":""LOYALTY"",""value"":3}}"
+INV-10006,"{""vendorCode"":""V005"",""amount"":999.99,""currency"":""USD"",""tax"":89.99,""paymentTerms"":""NET_30"",""discount"":{""type"":""EARLY_PAYMENT"",""value"":1.5}}"
+INV-10007,"{""vendorCode"":""V002"",""amount"":450.00,""currency"":""EUR"",""tax"":40.00,""paymentTerms"":""NET_15"",""discount"":{""type"":""NONE"",""value"":0}}"
+INV-10008,"{""vendorCode"":""V006"",""amount"":1200.00,""currency"":""USD"",""tax"":108.00,""paymentTerms"":""NET_30"",""discount"":{""type"":""SEASONAL"",""value"":4}}"
+INV-10009,"{""vendorCode"":""V003"",""amount"":2750.00,""currency"":""USD"",""tax"":247.50,""paymentTerms"":""NET_45"",""discount"":{""type"":""LOYALTY"",""value"":2}}"
+INV-10010,"{""vendorCode"":""V001"",""amount"":600.00,""currency"":""USD"",""tax"":54.00,""paymentTerms"":""NET_30"",""discount"":{""type"":""NONE"",""value"":0}}"
