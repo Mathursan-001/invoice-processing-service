@@ -4,8 +4,8 @@ import com.enterprise.invoice.entity.Invoice;
 import com.enterprise.invoice.service.StagingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.batch.core.listener.ItemWriteListener;
-import org.springframework.batch.infrastructure.item.Chunk;
+import org.springframework.batch.core.ItemWriteListener;
+import org.springframework.batch.item.Chunk;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Component;
 

@@ -17,6 +17,23 @@ public class StagingService {
 
     private final JdbcTemplate jdbcTemplate;
 
+    public int checkExistingStaging() {
+        try {
+            return jdbcTemplate.queryForObject(
+                    """
+                            select count(*) 
+                            from staging 
+                            where status = ?
+                            """,
+                    Integer.class,
+                    "NEW"
+            );
+        } catch (Exception ex) {
+            log.error("Failed to check count NEW records in staging {}", getRootCauseMessage(ex), ex);
+            return 0;
+        }
+    }
+
     @Transactional
     public void markFailed(Staging item, String errorMessage) {
         if (item == null) return;

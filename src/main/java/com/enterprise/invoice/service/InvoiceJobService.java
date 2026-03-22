@@ -6,22 +6,21 @@ import com.opencsv.CSVReader;
 import com.opencsv.exceptions.CsvException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.batch.core.job.Job;
-import org.springframework.batch.core.job.JobExecution;
-import org.springframework.batch.core.job.parameters.InvalidJobParametersException;
-import org.springframework.batch.core.job.parameters.JobParameters;
-import org.springframework.batch.core.job.parameters.JobParametersBuilder;
-import org.springframework.batch.core.launch.JobExecutionAlreadyRunningException;
-import org.springframework.batch.core.launch.JobInstanceAlreadyCompleteException;
+
+import org.springframework.batch.core.*;
+import org.springframework.batch.core.job.flow.JobFlowExecutor;
+import org.springframework.batch.core.launch.JobInstanceAlreadyExistsException;
+import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.batch.core.launch.JobOperator;
-import org.springframework.batch.core.launch.JobRestartException;
+import org.springframework.batch.core.launch.NoSuchJobException;
+import org.springframework.batch.core.repository.JobExecutionAlreadyRunningException;
+import org.springframework.batch.core.repository.JobInstanceAlreadyCompleteException;
+import org.springframework.batch.core.repository.JobRestartException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.node.JsonNodeFactory;
+
 
 import java.io.File;
 import java.io.FileReader;
@@ -30,6 +29,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Properties;
 
 @Service
 @RequiredArgsConstructor
@@ -39,6 +39,7 @@ public class InvoiceJobService {
 
     private final JobOperator jobOperator;
     private final Job stagingJob;
+    private final JobLauncher jobLauncher;
     private final StagingRepository stagingRepository;
 
     public void processStaging(MultipartFile file) {
@@ -78,12 +79,12 @@ public class InvoiceJobService {
                     .addString("run.id", String.valueOf(System.currentTimeMillis()))
                     .toJobParameters();
 
-            JobExecution execution = jobOperator.start(stagingJob, jobParameters);
+            JobExecution execution = jobLauncher.run(stagingJob, jobParameters);
 
-            log.info("Execution Started:{}", execution.getJobParameters());
+            log.info("Execution ID:{} Status:{}", execution.getJobId(), execution.getStatus());
 
-        } catch (JobInstanceAlreadyCompleteException | InvalidJobParametersException |
-                 JobExecutionAlreadyRunningException | JobRestartException e) {
+        } catch (JobParametersInvalidException |
+                 JobInstanceAlreadyCompleteException | JobExecutionAlreadyRunningException | JobRestartException e) {
             throw new RuntimeException(e);
         }
     }

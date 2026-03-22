@@ -17,6 +17,7 @@ public class InvoiceJobController {
 
     private final InvoiceJobService invoiceJob;
 
+    //not used, just for testing purpose, the actual batch job is triggered by scheduler
     @PostMapping
     public ResponseEntity<String> runInvoiceJob(@RequestParam("file") MultipartFile file) {
 
@@ -24,7 +25,7 @@ public class InvoiceJobController {
             return ResponseEntity.badRequest().body("Empty file");
         }
 
-        invoiceJob.processInvoice();
+        invoiceJob.processStaging(file);
 
         return ResponseEntity.ok("Batch Job Started for file:" + file.getOriginalFilename());
     }

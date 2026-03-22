@@ -5,33 +5,38 @@ import com.enterprise.invoice.batch.StagingMapper;
 import com.enterprise.invoice.entity.Invoice;
 import com.enterprise.invoice.entity.Staging;
 import com.enterprise.invoice.service.StagingService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.batch.core.*;
 import org.springframework.batch.core.configuration.annotation.*;
-import org.springframework.batch.core.job.Job;
-import org.springframework.batch.core.job.JobExecution;
+
 import org.springframework.batch.core.job.builder.JobBuilder;
-import org.springframework.batch.core.listener.JobExecutionListener;
-import org.springframework.batch.core.listener.SkipListener;
+
+import org.springframework.batch.core.job.flow.FlowExecutionStatus;
+import org.springframework.batch.core.job.flow.JobExecutionDecider;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.scope.context.ChunkContext;
-import org.springframework.batch.core.step.Step;
-import org.springframework.batch.core.step.StepContribution;
+
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.core.step.tasklet.Tasklet;
-import org.springframework.batch.infrastructure.item.ItemProcessor;
-import org.springframework.batch.infrastructure.item.ItemReader;
-import org.springframework.batch.infrastructure.item.ItemWriter;
-import org.springframework.batch.infrastructure.item.database.*;
-import org.springframework.batch.infrastructure.item.database.support.SqlPagingQueryProviderFactoryBean;
-import org.springframework.batch.infrastructure.repeat.RepeatStatus;
+
+import org.springframework.batch.item.ItemProcessor;
+import org.springframework.batch.item.ItemReader;
+import org.springframework.batch.item.ItemWriter;
+import org.springframework.batch.item.database.BeanPropertyItemSqlParameterSourceProvider;
+import org.springframework.batch.item.database.JdbcBatchItemWriter;
+import org.springframework.batch.item.database.JdbcPagingItemReader;
+import org.springframework.batch.item.database.PagingQueryProvider;
+import org.springframework.batch.item.database.support.SqlPagingQueryProviderFactoryBean;
+import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.*;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.util.CollectionUtils;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.json.JsonMapper;
 
 
 import javax.sql.DataSource;
@@ -44,7 +49,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.MDC;
 
 @Configuration
-@EnableBatchProcessing
+@EnableBatchProcessing()
 @Slf4j
 @RequiredArgsConstructor
 public class StagingJobConfig {
@@ -54,12 +59,37 @@ public class StagingJobConfig {
 
     private final StagingService stagingService;
 
+
     @Bean
-    public Job stagingJob(JobRepository jobRepository, @Qualifier("stagingStep") Step stagingStep,@Qualifier("stagingCleanupStep") Step stagingCleanupStep) {
+    public JobExecutionDecider invoiceProcessingDecider() {
+        return new JobExecutionDecider() {
+            @Override
+            public FlowExecutionStatus decide(JobExecution jobExecution, StepExecution stepExecution) {
+                // This decider can be enhanced to check job parameters or execution context to decide flow
+                int count = stagingService.checkExistingStaging();
+                log.info("Decider checked existing staging count: {}", count);
+
+                if (count > 0) {
+                    log.info("{} No of NEW staging records found,", count);
+                    return new FlowExecutionStatus("CONTINUE");
+                } else {
+                    log.info("No NEW staging records found, stopping processing step");
+                    return new FlowExecutionStatus("STOP");
+                }
+
+            }
+        };
+    }
+
+    @Bean
+    public Job stagingJob(JobRepository jobRepository,
+                          @Qualifier("stagingStep") Step stagingStep, @Qualifier("stagingCleanupStep") Step stagingCleanupStep, JobExecutionDecider jobExecutionDecider) {
         return new JobBuilder("stagingJob", jobRepository)
                 .listener(jobExecutionListener())
-                .start(stagingStep)
+                .start(jobExecutionDecider).on("STOP").end()
+                .from(jobExecutionDecider).on("CONTINUE").to(stagingStep)
                 .next(stagingCleanupStep)
+                .end()
                 .build();
     }
 
@@ -77,6 +107,7 @@ public class StagingJobConfig {
                 log.info("Invoice Job Completed with status: {} (id={})", jobExecution.getStatus(), jobExecution.getId());
                 log.info("Processing summary - processed={}, failed={}", PROCESSED_COUNT.get(), FAILED_COUNT.get());
                 MDC.remove("jobExecutionId");
+
                 // reset counters for next run
                 PROCESSED_COUNT.set(0);
                 FAILED_COUNT.set(0);
@@ -90,9 +121,10 @@ public class StagingJobConfig {
                             ItemProcessor<Staging, Invoice> processor,
                             ItemWriter<Invoice> writer,
                             ThreadPoolTaskExecutor taskExecutor,
-                            InvoiceStepListener invoiceStepListener) {
+                            InvoiceStepListener invoiceStepListener,
+                            PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder("stagingStep", jobRepository)
-                .<Staging, Invoice>chunk(100)
+                .<Staging, Invoice>chunk(100, platformTransactionManager)
                 .reader(reader)
                 .processor(processor)
                 .writer(writer)
@@ -101,12 +133,12 @@ public class StagingJobConfig {
                 .faultTolerant()
                 .skip(Exception.class)
                 .skipLimit(100)
-                .skipListener(skipListener(stagingService))
+                .listener(skipListener(stagingService))
                 .build();
     }
 
     @Bean
-    public Step stagingCleanupStep(JobRepository jobRepository) {
+    public Step stagingCleanupStep(JobRepository jobRepository, PlatformTransactionManager platformTransactionManager) {
         return new StepBuilder("stagingCleanupStep", jobRepository)
                 .tasklet(new Tasklet() {
                     @Override
@@ -137,13 +169,13 @@ public class StagingJobConfig {
                         log.info("Completed staging cleanup: {} succeeded, {} attempted", success, toCleanup.size());
                         return RepeatStatus.FINISHED;
                     }
-                }).build();
+                }, platformTransactionManager).build();
     }
 
     @Bean
-    public JdbcPagingItemReader<Staging> stagingReader(DataSource dataSource, PagingQueryProvider pagingQueryProvider) {
+    public JdbcPagingItemReader<Staging> reader(DataSource dataSource, PagingQueryProvider pagingQueryProvider) {
 
-        JdbcPagingItemReader<Staging> reader = new JdbcPagingItemReader<>(dataSource, pagingQueryProvider);
+        JdbcPagingItemReader<Staging> reader = new JdbcPagingItemReader<>();
 
         reader.setDataSource(dataSource);
         reader.setPageSize(100);
@@ -152,7 +184,6 @@ public class StagingJobConfig {
 
         return reader;
     }
-
 
     @Bean
     public SqlPagingQueryProviderFactoryBean queryProvider(DataSource dataSource) {
@@ -211,7 +242,7 @@ public class StagingJobConfig {
                 Invoice invoice = Invoice
                         .builder()
                         .invoiceNumber(staging.getInvoiceNumber())
-                        .vendorCode(attributes.path("vendorCode").isMissingNode() ? null : attributes.path("vendorCode").asString())
+                        .vendorCode(attributes.path("vendorCode").isMissingNode() ? null : attributes.path("vendorCode").asText())
                         .attributes(attributesJson)
                         .build();
 
@@ -230,6 +261,25 @@ public class StagingJobConfig {
                 throw new ValidationException(msg);
             }
         };
+    }
+
+    @Bean
+    public JdbcBatchItemWriter<Invoice> writer(DataSource dataSource) {
+        JdbcBatchItemWriter<Invoice> writer = new JdbcBatchItemWriter<>();
+        writer.setDataSource(dataSource);
+        writer.setItemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<>()); //automatically map bean properties to SQL parameters
+
+        // Use DB current timestamp for created_at and updated_at on insert,
+        // and set updated_at to CURRENT_TIMESTAMP on conflict (upsert).
+        writer.setSql("INSERT INTO invoice (invoice_number, vendor_code, attributes, created_at, updated_at) VALUES (:invoiceNumber, :vendorCode, cast(:attributes as jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (invoice_number) DO UPDATE SET vendor_code = EXCLUDED.vendor_code, attributes = EXCLUDED.attributes, updated_at = CURRENT_TIMESTAMP");
+        // ensure the writer is fully initialized
+        try {
+            writer.afterPropertiesSet();
+        } catch (Exception ex) {
+            log.error("Failed to initialize JdbcBatchItemWriter: {}", stagingService.getRootCauseMessage(ex), ex);
+            throw new RuntimeException("Writer initialization failed", ex);
+        }
+        return writer;
     }
 
     // Skip Listener to handle invalid rows
@@ -267,25 +317,6 @@ public class StagingJobConfig {
                 }
             }
         };
-    }
-
-    @Bean
-    public JdbcBatchItemWriter<Invoice> writer(DataSource dataSource) {
-        JdbcBatchItemWriter<Invoice> writer = new JdbcBatchItemWriter<>();
-        writer.setDataSource(dataSource);
-        writer.setItemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<>()); //automatically map bean properties to SQL parameters
-
-        // Use DB current timestamp for created_at and updated_at on insert,
-        // and set updated_at to CURRENT_TIMESTAMP on conflict (upsert).
-        writer.setSql("INSERT INTO invoice (invoice_number, vendor_code, attributes, created_at, updated_at) VALUES (:invoiceNumber, :vendorCode, cast(:attributes as jsonb), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (invoice_number) DO UPDATE SET vendor_code = EXCLUDED.vendor_code, attributes = EXCLUDED.attributes, updated_at = CURRENT_TIMESTAMP");
-        // ensure the writer is fully initialized
-        try {
-            writer.afterPropertiesSet();
-        } catch (Exception ex) {
-            log.error("Failed to initialize JdbcBatchItemWriter: {}", stagingService.getRootCauseMessage(ex), ex);
-            throw new RuntimeException("Writer initialization failed", ex);
-        }
-        return writer;
     }
 
 
